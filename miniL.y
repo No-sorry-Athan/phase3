@@ -4,21 +4,84 @@
 #include <stdlib.h>
 #include <string>
 #include <string.h>
+#include <vector>
+#include <algorithm>
+#include <iostream>
 
 extern int yylex();
 extern int yyparse();
 extern FILE* yyin;
+extern FILE* yyout;
 
 extern std::string params = "";
 extern std::string paramtails = "";
 extern int count = 0;
 extern int tmpCount = 0;
-extern std::string tempString = "";
 
-struct Node{
-  char* arrayTemp;
-  char* arrayTemp2;
+struct Function {
+  std::string name;
+  std::vector<std::string> decparams1;
+  std::vector<std::string> decparams2;
+  std::vector<std::string> declocals;
+  std::vector<std::string> statements;
 };
+std::vector<Function> symbol_table;
+
+void addFunction(std::string &value) {
+  Function f;
+  f.name = value;
+  symbol_table.push_back(f);
+}
+
+Function *getFunction() { return &symbol_table[symbol_table.size()-1]; }
+
+void addDecParam1(std::string &value) {
+  Function *f = getFunction();
+  f->decparams1.push_back(value);
+}
+
+void addDecParam2(std::string &value) {
+  Function *f = getFunction();
+  f->decparams2.push_back(value);
+}
+
+void addDecLocal(std::string &value) {
+  Function *f = getFunction();
+  f->declocals.push_back(value);
+}
+
+void addStatement(std::string &value) {
+  Function *f = getFunction();
+  f->statements.push_back(value);
+}
+
+void printSymbolTable() {
+  printf("Symbol Table\n");
+  printf("--------------------\n");
+  for(Function f : symbol_table) {
+    printf("function: %s\n", f.name.c_str());
+
+    for(std::string decparam1 : f.decparams1) {
+      printf("  params: %s\n", decparam1.c_str());
+    }
+    for(std::string decparam2 : f.decparams2) {
+      printf("  params: %s\n", decparam2.c_str());
+    }
+    if (!f.decparams2.empty())
+      printf("\n");
+
+    for(std::string declocal : f.declocals) {
+      printf("  locals: %s\n", declocal.c_str());
+    }
+    if (!f.declocals.empty())
+      printf("\n");
+    for(std::string statement : f.statements) {
+      printf("  statements: %s\n", statement.c_str());
+    }
+    printf("endfunc\n\n");
+  }
+  printf("--------------------\n");
+}
 
 void yyerror(const char *msg);
 %}
@@ -54,7 +117,6 @@ void yyerror(const char *msg);
 %type <sval> T
 %type <sval> ECL
 %type <sval> MOP
-%type <sval> ATERM
 %type <sval> ME
 %type <sval> AOP
 
@@ -62,133 +124,140 @@ void yyerror(const char *msg);
 %%
 // absorb function (1+) or end
 prog_start: functions;
-functions: F functions {
-    //printf("functions -> functions function\n"); 
-  } 
-  | 
-  { 
-    //printf("functions -> epsilon\n"); 
-  };
-F: FUNCTION identifier SEMICOLON
- {
-  std::string ident = $2; 
 
+functions: F functions | ;
+F: FUNCTION identifier SEMICOLON {
+  std::string ident = $2; 
+  // yyout << "func " << ident << "\n";
+  std::string temp = "func " + ident + "\n";
+  fprintf(yyout, temp.c_str());
   printf("func %s\n", ident.c_str());
+  addFunction(ident);
   //printf("function -> FUNCTION IDENT SEMICOLON BEGIN_PARAMS declarations END_PARAMS BEGIN_LOCALS declarations END_LOCALS BEGIN_BODY statements END_BODY\n");
- } BPARAMS DECPARAM PRINTPARAMS EPARAMS BLOCALS DECLOCALS ELOCALS BBODY S1 EBODY {printf("endfunc\n\n");};
-DECPARAMW: 
-    DECPARAM DECPARAMW;
+  } BPARAMS DECPARAM PRINTPARAMS EPARAMS BLOCALS DECLOCALS ELOCALS BBODY S1 EBODY {printf("endfunc\n\n"); fprintf(yyout, "endfunc\n\n"); };
+
 DECPARAM : identifier COLON INTEGER SEMICOLON { 
     std::string ident = $1; 
-    //printf(". %s\n", ident.c_str()); 
     params = params + ". " + ident.c_str() + "\n";
-    paramtails = paramtails + "= " + ident.c_str() + ", $" + std::to_string(count++) + "\n";} DECPARAM 
+    std::string dcp1 = ". " + ident;
+    addDecParam1(dcp1);
+    std::string dcp2 = "= " + ident + ", $" + std::to_string(count);
+    addDecParam2(dcp2);
+    paramtails = paramtails + "= " + ident.c_str() + ", $" + std::to_string(count++) + "\n";
+    } DECPARAM 
   | identifier COLON ARRAY L_SQUARE_BRACKET number R_SQUARE_BRACKET OF INTEGER SEMICOLON { 
       std::string ident = $1;
       int num = $5;
+      std::string dcp1 = ".[] " + ident + ", " + std::to_string(num);
       params = params + ".[] " + ident + ", " + std::to_string(num);
-      paramtails = paramtails + "= " + ident + ", $" + std::to_string(count++) + "";
-      //printf("\n\n\n\n%shere0", params.c_str());
+      addDecParam1(dcp1);
+      std::string dcp2 = "= " + ident + ", $" + std::to_string(count);
+      addDecParam2(dcp2);
+      paramtails = paramtails + "= " + ident + ", $" + std::to_string(count++) + "\n";
   } DECPARAM | ;
-PRINTPARAMS : { printf("%s%s", params.c_str(), paramtails.c_str()); params = ""; paramtails = ""; count = 0;}
+PRINTPARAMS : { printf("%s%s", params.c_str(), paramtails.c_str()); fprintf(yyout, params.c_str()); fprintf(yyout, paramtails.c_str()); params = ""; paramtails = ""; count = 0;}
+
 DECLOCALS : identifier COLON INTEGER SEMICOLON { 
     std::string ident = $1; 
+    std::string declocal = ". " + ident;
+    std::string output = ". " + ident + "\n";
     printf(". %s\n", ident.c_str()); 
+    fprintf(yyout, output.c_str());
+    addDecLocal(declocal);
     } DECLOCALS 
   | identifier COLON ARRAY L_SQUARE_BRACKET number R_SQUARE_BRACKET OF INTEGER SEMICOLON { 
       std::string ident = $1;
       int num = $5;
-      std::string output_string = ".[] " + ident + ", " + std::to_string(num) + "\n";
-      printf("%s", output_string.c_str());
+      std::string output_string = ".[] " + ident + ", " + std::to_string(num);
+      printf("%s\n", output_string.c_str());
+      std::string outputN = output_string + "\n";
+      fprintf(yyout, outputN.c_str());
+      addDecLocal(output_string);
   } DECLOCALS | ;
-D: D D1 SEMICOLON {
-  printf("declaration -> declaration declarations SEMICOLON\n"); }| { printf("declaration -> epsilon\n");
-  
- };
-D1: identifier COLON A INTEGER { 
-  printf("declarations -> IDENT COLON arrays INTEGER\n"); 
-  /*
-    variables a / b
-    add to mil 
-    seperate into two "declrations"
-    one for inbtw params 
-    one for inbtw locals
-  */
 
-};
-A: ARRAY L_SQUARE_BRACKET number R_SQUARE_BRACKET OF {
-  printf("arrays -> ARRAY L_SQUARE_BRACKET number %d R_SQUARE_BRACKET OF\n", yylval);
-  /*
-     array case: array variable
-     output to mil
-     .[] ident(??), %d (yylval)
-  */
- }
- | {
-   /* empty case: regular variable 
-      . ident
-   */
-   printf("arrays -> epsilon\n");
-   };
-S: S1 S2 {
-  printf("statements -> statements1 statement2\n");
-  };
-S1: S1 S2 SEMICOLON {
-  //printf("statements1 -> statements1 statement2 SEMICOLON\n");
-  }| /*{printf("statements1 -> epsilon\n");}*/;
+S1: S1 S2 SEMICOLON { /* printf("statements1 -> statements1 statement2 SEMICOLON\n"); */ }
+| /*{printf("statements1 -> epsilon\n");}*/;
 S2: IF BE THEN S1 ES ENDIF { printf("statement2 -> IF bool_exp THEN statements else ENDIF\n"); }
   | identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET ASSIGN E { 
-    std::string ident = $1;
-    std::string e = $3;
-    std::string rhs = $6;
-    int equiv = std::atoi(rhs.c_str());
-    if (equiv != 0){
+      std::string ident = $1;
+      std::string e = $3;
+      std::string rhs = $6;
+      int equiv = std::atoi(rhs.c_str());
+      if (equiv != 0){
         std::string outputString = "[]= " + ident + ", " + e + ", " + rhs; 
-        printf  ("%s\n", outputString.c_str());
-    }
-    else{
-    int copyOfCount = tmpCount - 1;
-    std::string temp = "_temp" + std::to_string(copyOfCount);
-    std::string outputString = "[]= " + ident + ", " + e + ", " + temp; 
-    printf("%s\n", outputString.c_str());
-    }
-
+        std::string output = outputString + "\n";
+        printf("%s\n", outputString.c_str());
+        fprintf(yyout, output.c_str());
+        addStatement(outputString);
+      }
+      else{
+        int copyOfCount = tmpCount - 1;
+        std::string temp = "_temp" + std::to_string(copyOfCount);
+        std::string outputString = "[]= " + ident + ", " + e + ", " + temp; 
+        std::string outputN = outputString + "\n";
+        printf("%s\n", outputString.c_str());
+        fprintf(yyout, outputN.c_str());
+        addStatement(outputString);
+      }
     } 
-  | V ASSIGN E {
-      //printf("statement2 -> var ASSIGN expression\n"); 
-      /*  assignment case */
-
-        printf("= %s, %s\n", $1, $3);
-        
-    }
-    
+  | V ASSIGN E { /* printf("statement2 -> var ASSIGN expression\n"); */ 
+  std::string v = $1;
+  std::string e = $3;
+  std::string outputString = "= " + v + ", " + e;
+  std::string outputN = outputString + "\n";
+  printf("= %s, %s\n", $1, $3); 
+  fprintf(yyout, outputN.c_str());
+  addStatement(outputString);}
   | WHILE BE BLOOP S1 ENLOOP {printf("statement2 -> WHILE bool_exp BLOOP statements ENLOOP\n");}
-  | DO BLOOP S ENLOOP WHILE BE {printf("statement2 -> DO BLOOP statements ENLOOP WHILE bool_exp\n"); }
+  | DO BLOOP S1 ENLOOP WHILE BE {printf("statement2 -> DO BLOOP statements ENLOOP WHILE bool_exp\n"); }
   | READ V {
     printf("statement2 -> READ var\n");
     }
   | WRITE identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET
   { 
     std::string temp = "_temp" + std::to_string(tmpCount++);
+    std::string tempSymbol = ". " + temp;
+    std::string tempN = tempSymbol + "\n";
     printf(". %s\n", temp.c_str());
+    fprintf(yyout, tempN.c_str());
+    addStatement(tempSymbol);
     std::string ident = $2;
     std::string e = $4;
     std::string output = "=[] " + temp + ", " + ident + ", " + e;
+    std::string outputSymbol = output;
+    std::string outputN = output + "\n";
     printf("%s\n", output.c_str());
-    printf(".> %s\n", temp.c_str());
+    fprintf(yyout, outputN.c_str());
+    addStatement(outputSymbol);
 
+    std::string tempW = ".> " + temp + "\n";
+    printf(".> %s\n", temp.c_str());
+    fprintf(yyout, tempW.c_str());
+    std::string writeTemp = ".> " + temp;
+    addStatement(writeTemp);
   }
   | WRITE V {
     // printf("statement2 -> WRITE var\n");
     std::string var = $2;
+    std::string writeVar = ".> " + var;
+    std::string varN = writeVar + "\n";
     printf(".> %s\n", var.c_str());
+    fprintf(yyout, varN.c_str());
+    addStatement(writeVar);
     }
   | CONTINUE {printf("statement2 -> CONTINUE\n");}
   | BREAK {printf("statement2 -> BREAK\n");}
   | RETURN E {
     printf("ret %s\n", $2);
+    std::string var = $2;
+    std::string retSymbol = "ret " + var;
+    addStatement(retSymbol);
+
+    std::string retN = retSymbol + "\n";
+    fprintf(yyout, retN.c_str());
     // printf("statement2 -> RETURN expression\n");
-    } 
+    };
+
 ES: ELSE S1 {printf("else -> ELSE statements\n"); }| {printf("else -> epsilon\n"); };
 BE: N E C E {printf("bool_exp -> not expression comparison expression\n");} 
   | {printf("bool_exp -> epsilon\n");}; 
@@ -199,88 +268,60 @@ C: EQ {printf("comparison -> EQ\n"); }
   | GT {printf("comparison -> GT\n"); }
   | LTE {printf("comparison -> LTE\n"); }
   | GTE {printf("comparison -> GTE\n"); }; 
-E: ME ATERM {
+  
+E: ME { $$ = $1; }
+  | ME AOP ME {
      // printf("expression -> mult_exp add_term\n"); 
-    std::string output = $1; 
-    std::string output2 = $2;
-    std::string output_string = output + output2.c_str();
-    char* output3 = strdup(output_string.c_str());
-    $$ = output3;
-  }
-ATERM: ATERM AOP ME {
-    //printf("add_term -> add_op mult_exp add_term\n"); 
     std::string temp = "_temp" + std::to_string(tmpCount++);
-    printf(". %s", temp.c_str());
-    std::string aop = $1;
-    
-    printf("%s %s");
+    std::string me1 = $1;
+    std::string aop = $2;
+    std::string me2 = $3;
+    printf(". %s\n", temp.c_str());
+    std::string tempSymbol = ". " + temp;
+    addStatement(tempSymbol);
 
-    $$ = "aterm"; } 
-    | {
-      // printf("add_term -> epsilon\n"); 
-      $$ = ""; 
-      };
-AOP: ADD {
-  // printf("add_op -> ADD\n"); 
-  $$ = "+"; 
+    std::string tempN = tempSymbol + "\n";
+    fprintf(yyout, tempN.c_str());
+
+    printf("%s %s, %s, %s\n", aop.c_str(), temp.c_str(), me1.c_str(), me2.c_str());
+    std::string outputSymbol = aop + " " + temp + ", " + me1 + ", " + me2;
+    char* outputc = strdup(temp.c_str());
+    $$ = outputc;
+    addStatement(outputSymbol);
+
+    std::string outputN = outputSymbol + "\n";
+    fprintf(yyout, outputN.c_str());
   }
-  | SUB {
-    // printf("add_op -> SUB\n"); 
-    $$ = "-"; 
-    } ;
-ME: T 
-{ std::string output = $1; 
-// printf("%s\n", output.c_str()); 
-}
+AOP: ADD { /* printf("add_op -> ADD\n"); */ $$ = "+"; }
+  | SUB { /* printf("add_op -> SUB\n"); */ $$ = "-"; };
+ME: T { std::string output = $1; /* printf("%s\n", output.c_str()); */ }
   | T MOP ME { 
     // printf("mult_exp -> term mult_term\n");
     std::string temp = "_temp" + std::to_string(tmpCount++);
     printf(". %s\n", temp.c_str());
+    std::string tempSymbol = ". " + temp;
+    addStatement(tempSymbol);
+
+    std::string tempN = tempSymbol + "\n";
+    fprintf(yyout, tempN.c_str());
 
     std::string moperator = $2;
     std::string lefthand = $1;
     std::string me = $3;
     std::string output = moperator + " " + temp + ", " + lefthand + ", " + me;
     printf("%s\n", output.c_str()); 
+    addStatement(output);
 
-    char* tempC = &temp[0];
+    std::string outputN = output + "\n";
+    fprintf(yyout, outputN.c_str());
+
+    char* tempC = strdup(temp.c_str());
     $$ = tempC;
     };
-  | T AOP ME {
-    // printf("mult_exp -> term mult_term\n");
-    std::string temp = "_temp" + std::to_string(tmpCount++);
-    printf(". %s\n", temp.c_str());
-    std::string lefthand = $1;
-    std::string adop = $2;
-    std::string me = $3;
-    std::string output = adop + " " + temp + ", " + lefthand + ", " + me; 
-    printf("%s\n", output.c_str()); 
-    
-    char* tempC = &temp[0];
-    $$ = tempC;
-  }
-MTERM: MOP T MTERM {
-  printf("mult_term -> mult_op term mult_term\n"); 
-  }
-  | {
-    printf("mult_term -> epsilon\n"); 
-  };
-MOP: MULT {
-  // printf("mult_op -> MULT\n"); 
-  $$ = "*"; 
-  }
-  |  DIV {
-    // printf("mult_op -> DIV\n"); 
-    $$ = "/"; 
-  }
-  |  MOD {
-    // printf("mult_op -> MOD\n"); 
-    $$ = "%"; 
-  };
-T: V { 
-  // printf("term -> var\n"); 
-  $$ = $1; 
-  }
+MOP: MULT { /* printf("mult_op -> MULT\n"); */ $$ = "*"; }
+  |  DIV { /* printf("mult_op -> DIV\n"); */ $$ = "/"; }
+  |  MOD { /* printf("mult_op -> MOD\n"); */ $$ = "%"; };
+T: V { /* printf("term -> var\n"); */ $$ = $1; }
   | number {
     /*printf("term -> number %d\n", yylval);*/ 
     int num = $1; 
@@ -298,64 +339,76 @@ T: V {
     // printf("term -> identifier L_PAREN expression_comma_loop R_PAREN\n"); 
     std::string ident = $1;
     std::string ecl = $3;
-    std::string output = ident + "(" + ecl + ")";
-    char* outputc = strdup(output.c_str());
-    $$ = outputc; 
+    printf("call %s, %s\n", ident.c_str(), ecl.c_str());
+    std::string callSymbol = "call " + ident + ", " + ecl;
+    addStatement(callSymbol);
+
+    std::string callN = callSymbol + "\n";
+    fprintf(yyout, callN.c_str());
+
+    $$ = $3; 
     }
-ECL: E COMMA ECL {
+ECL: E { printf("param %s\n", $1); 
+std::string e = $1; 
+std::string output = "param " + e; 
+addStatement(output);
+std::string outputN = output + "\n"; 
+fprintf(yyout, outputN.c_str());
+} 
+COMMA ECL {
     // printf("expression_comma_loop -> expression COMMA expression_comma_loop\n"); 
     std::string e = $1;
-    std::string ecl = $3;
+    std::string ecl = $4;
     std::string output = e + "," + ecl;
     char* outputc = strdup(output.c_str());
-    printf("param %s\n", $1);
+    
+    printf("param %s\n", $4);
+    std::string paramSymbol = "param " + ecl;
+    addStatement(paramSymbol);
+
+    std::string paramN = paramSymbol + "\n";
+    fprintf(yyout, paramN.c_str());
+
     std::string temp = "_temp" + std::to_string(tmpCount++);
     printf(". %s\n", temp.c_str());
-    $$ = outputc; 
+    std::string tempSymbol = ". " + temp;
+    addStatement(tempSymbol);
+
+    std::string tempN = tempSymbol + "\n";
+    fprintf(yyout, tempN.c_str());
+
+    $$ = strdup(temp.c_str()); 
     }
-  | E {
-    // printf("expression_comma_loop -> expression\n"); 
-    printf("param %s\n", $1);
-    $$ = $1;
-    
-     }
-  | {
-    // printf("expression_comma_loop -> epsilon\n"); 
-    $$ = ""; 
-    }; 
-V: identifier { 
-  $$ = $1; 
-  }
+  | E { /* printf("expression_comma_loop -> expression\n"); */ $$ = $1; }
+  | { /* printf("expression_comma_loop -> epsilon\n"); */ $$ = ""; }; 
+V: identifier { $$ = $1; }
   | identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET { 
-    // std::string output = $1; 
-    // std::string e = $3; 
-    // output = output + "[" + e + "]"; 
-    // char* outputc = strdup(output.c_str()); 
-    // $$ = outputc;
-    Node* node = new Node();
+    //Node* node = new Node();
     std::string ident = $1;
     std::string e = $3;
     std::string outputString = "[]= " + ident + ", " + e; 
-    char* outputC = &outputString[0];
+    char* outputC = strdup(outputString.c_str());
 
     std::string temp = "_temp" + std::to_string(tmpCount++);
     printf(". %s\n", temp.c_str());
+    std::string tempSymbol = ". " + temp;
+    addStatement(tempSymbol);
+
+    std::string tempN = tempSymbol + "\n";
+    fprintf(yyout, tempN.c_str());
 
     std::string output = "=[] " + temp + ", " + ident + ", " + e;
     printf("%s\n", output.c_str()); 
-    // $$ = tempC;
+    addStatement(output);
 
-    char* tempC = &temp[0];
-    // printf("Went into here %s\n\n\n", tempC);
+    std::string outputN = output + "\n";
+    fprintf(yyout, outputN.c_str());
 
+    char* tempC = strdup(temp.c_str());
     $$ = tempC;
-    } //todo
-identifier: IDENTIFIER {
-  $$ = $1;
-  }
-number: NUMBER {
-  $$ = $1;
-  }
+    }
+identifier: IDENTIFIER { $$ = $1; }
+number: NUMBER { $$ = $1; }
 %%
 
 int main(int argc, char **argv) {
@@ -363,7 +416,14 @@ int main(int argc, char **argv) {
    if (argc > 1){
       yyin = fopen(argv[1], "r");
    }
+
+   yyout = fopen("output.mil", "w");
+
    yyparse();
+   fclose(yyout);
+   printSymbolTable();
+   //printf("%s", argv[0]);
+
    return 0;
 }
 
