@@ -17,6 +17,8 @@ extern std::string params = "";
 extern std::string paramtails = "";
 extern int count = 0;
 extern int tmpCount = 0;
+extern int loopCount = 0;
+extern int ifCount = 0;
 
 struct Function {
   std::string name;
@@ -110,13 +112,17 @@ void yyerror(const char *msg);
 
 %type <sval> identifier
 %type <ival> number
+%type <sval> S1
+%type <sval> S2
 %type <sval> E
-
+%type <sval> C
 %type <sval> V
-
+%type <sval> N
 %type <sval> T
+%type <sval> BE
 %type <sval> ECL
 %type <sval> MOP
+%type <sval> ifBE
 %type <sval> ME
 %type <sval> AOP
 
@@ -175,9 +181,33 @@ DECLOCALS : identifier COLON INTEGER SEMICOLON {
       addDecLocal(output_string);
   } DECLOCALS | ;
 
-S1: S1 S2 SEMICOLON { /* printf("statements1 -> statements1 statement2 SEMICOLON\n"); */ }
+S1: S1 S2 SEMICOLON { /* printf("statements1 -> statements1 statement2 SEMICOLON\n"); */ $$ = $2;}
 | /*{printf("statements1 -> epsilon\n");}*/;
-S2: IF BE THEN S1 ES ENDIF { printf("statement2 -> IF bool_exp THEN statements else ENDIF\n"); }
+S2:
+  IF {ifCount++;} ifBE THEN {
+  int currentLoop = ifCount - 1;
+  std::string outputString = ": if_true" + std::to_string(currentLoop);
+  printf("%s\n", outputString.c_str());
+  std::string outputN = outputString + "\n";
+  fprintf(yyout, outputN.c_str());
+  }
+    S1 { if ($6 != "break"){
+      int currentLoop = ifCount - 1;
+      std::string outputString = ":= endif" + std::to_string(currentLoop);
+      printf("%s\n", outputString.c_str());
+      std::string outputN = outputString + "\n";
+      fprintf(yyout, outputN.c_str());
+      } 
+    }
+    ES ENDIF { 
+    int currentLoop = ifCount - 1;
+    std::string outputString = ": endif" + std::to_string(currentLoop);
+    printf("%s\n", outputString.c_str());
+    std::string outputN = outputString + "\n";
+    fprintf(yyout, outputN.c_str());
+ 
+    // printf("statement2 -> IF bool_exp THEN statements else ENDIF\n"); 
+    }
   | identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET ASSIGN E { 
       std::string ident = $1;
       std::string e = $3;
@@ -208,8 +238,36 @@ S2: IF BE THEN S1 ES ENDIF { printf("statement2 -> IF bool_exp THEN statements e
   printf("= %s, %s\n", $1, $3); 
   fprintf(yyout, outputN.c_str());
   addStatement(outputString);}
-  | WHILE BE BLOOP S1 ENLOOP {printf("statement2 -> WHILE bool_exp BLOOP statements ENLOOP\n");}
-  | DO BLOOP S1 ENLOOP WHILE BE {printf("statement2 -> DO BLOOP statements ENLOOP WHILE bool_exp\n"); }
+  | WHILE { 
+      std::string outputString = ": beginloop" + std::to_string(loopCount++);
+      printf("%s\n", outputString.c_str());  
+      std::string outputN = outputString + "\n";
+      fprintf(yyout, outputN.c_str());
+     } BE BLOOP 
+     {  int currentLoop = loopCount - 1; 
+     
+        std::string outputString = ": loopbody" + std::to_string(currentLoop);
+        printf("%s\n", outputString.c_str());  
+        std::string outputN = outputString + "\n";
+        fprintf(yyout, outputN.c_str());
+      } S1 ENLOOP {
+      int currentLoop = loopCount - 1; 
+      loopCount --;
+      std::string outputString1 = ":= beginloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString1.c_str());
+      std::string output1N = outputString1 + "\n";
+      fprintf(yyout, output1N.c_str());
+      std::string outputString2 = ": endloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString2.c_str());
+      std::string output2N = outputString2 + "\n";
+      fprintf(yyout, output2N.c_str());
+    // printf("statement2 -> WHILE bool_exp BLOOP statements ENLOOP\n");
+    }
+  | DO { std::string beginloop = ": beginloop" + std::to_string(loopCount++);
+    printf("%s\n", beginloop.c_str()); } BLOOP S1 ENLOOP WHILE BE {
+    
+    printf("statement2 -> DO BLOOP statements ENLOOP WHILE bool_exp\n"); 
+    }
   | READ V {
     printf("statement2 -> READ var\n");
     }
@@ -245,8 +303,18 @@ S2: IF BE THEN S1 ES ENDIF { printf("statement2 -> IF bool_exp THEN statements e
     fprintf(yyout, varN.c_str());
     addStatement(writeVar);
     }
-  | CONTINUE {printf("statement2 -> CONTINUE\n");}
-  | BREAK {printf("statement2 -> BREAK\n");}
+  | CONTINUE {
+    // printf("statement2 -> CONTINUE\n");
+    }
+  | BREAK {
+    int currentLoop = loopCount - 1;
+    std::string outputString = ":= endloop" + std::to_string(currentLoop);
+    printf("%s\n", outputString.c_str());
+    std::string outputStringN = outputString + '\n';
+    fprintf(yyout, outputStringN.c_str());
+    $$ = "break";
+    // printf("statement2 -> BREAK\n");
+    }
   | RETURN E {
     printf("ret %s\n", $2);
     std::string var = $2;
@@ -258,16 +326,127 @@ S2: IF BE THEN S1 ES ENDIF { printf("statement2 -> IF bool_exp THEN statements e
     // printf("statement2 -> RETURN expression\n");
     };
 
-ES: ELSE S1 {printf("else -> ELSE statements\n"); }| {printf("else -> epsilon\n"); };
-BE: N E C E {printf("bool_exp -> not expression comparison expression\n");} 
-  | {printf("bool_exp -> epsilon\n");}; 
-N: NOT N {printf("not -> NOT not\n");} | {printf("not -> epsilon\n");} ;
-C: EQ {printf("comparison -> EQ\n"); }
-  | NEQ {printf("comparison -> NEQ\n"); }
-  | LT {printf("comparison -> LT\n"); }
-  | GT {printf("comparison -> GT\n"); }
-  | LTE {printf("comparison -> LTE\n"); }
-  | GTE {printf("comparison -> GTE\n"); }; 
+ES: ELSE {int currentLoop = ifCount - 1;
+    std::string outputString = ": else" + std::to_string(currentLoop);
+    printf("%s\n", outputString.c_str());
+    std::string outputN = outputString + "\n";
+    fprintf(yyout, outputN.c_str()); } 
+    S1 {
+    
+    // printf("else -> ELSE statements\n"); 
+  }| {
+    // printf("else -> epsilon\n"); 
+  };
+BE: N E C E {
+  std::string ntString = $1;
+  std::string e1 = $2;
+  std::string c = $3;
+  std::string e2 = $4;
+  int currentLoop = loopCount - 1;
+
+
+  std::string temp = "_temp" + std::to_string(tmpCount++);
+  printf(". %s\n", temp.c_str());
+  std::string tempN = ". " + temp + "\n";
+  fprintf(yyout, tempN.c_str());
+
+  std::string compOp = c + " " + temp + ", " + e1 + ", " + e2;
+  printf("%s\n", compOp.c_str());
+  std::string compOpN = compOp + "\n";
+  fprintf(yyout, compOpN.c_str());
+
+  std::string loopAssn = "?:= loopbody" + std::to_string(currentLoop) + ", " + temp;
+  printf("%s\n", loopAssn.c_str());
+  std::string loopAssnN = loopAssn + "\n";
+  fprintf(yyout, loopAssnN.c_str());
+
+  std::string endLoopS = ":= endloop" + std::to_string(currentLoop);
+  printf("%s\n", endLoopS.c_str());
+  std::string endLoopN = endLoopS + "\n";
+  fprintf(yyout, endLoopN.c_str());
+
+  /* std::string tempSymbol = ". " + temp;
+  addStatement(tempSymbol); */
+
+ // printf("bool_exp -> not expression comparison expression\n");
+} 
+| {
+  // printf("bool_exp -> epsilon\n");
+  $$ = "";
+}; 
+
+ifBE: N E C E {
+  std::string ntString = $1;
+  std::string e1 = $2;
+  std::string c = $3;
+  std::string e2 = $4;
+  int currentLoop = ifCount - 1;
+
+
+  std::string temp = "_temp" + std::to_string(tmpCount++);
+  printf(". %s\n", temp.c_str());
+  std::string tempN = ". " + temp + "\n";
+  fprintf(yyout, tempN.c_str());
+
+  std::string compOp = c + " " + temp + ", " + e1 + ", " + e2;
+  printf("%s\n", compOp.c_str());
+  std::string compOpN = compOp + "\n";
+  fprintf(yyout, compOpN.c_str());
+
+  std::string loopAssn = "?:= if_true" + std::to_string(currentLoop) + ", " + temp;
+  printf("%s\n", loopAssn.c_str());
+  std::string loopAssnN = loopAssn + "\n";
+  fprintf(yyout, loopAssnN.c_str());
+
+  std::string endLoopS = ":= else" + std::to_string(currentLoop);
+  printf("%s\n", endLoopS.c_str());
+  std::string endLoopN = endLoopS + "\n";
+  fprintf(yyout, endLoopN.c_str());
+
+  /* std::string tempSymbol = ". " + temp;
+  addStatement(tempSymbol); */
+
+ // printf("bool_exp -> not expression comparison expression\n");
+} 
+| {
+  // printf("bool_exp -> epsilon\n");
+  $$ = "";
+}; 
+
+N: NOT N {
+  printf("not -> NOT not\n");
+  std::string current = $$;
+  std::string notString = current + " not";
+  char* notC = strdup(notString.c_str());
+  $$ = notC;
+  } | {
+    // printf("not -> epsilon\n");
+    $$ = "";
+    } ;
+C: EQ { 
+    // printf("comparison -> EQ\n"); 
+    $$ = "=";
+    }
+  | NEQ {
+    // printf("comparison -> NEQ\n"); 
+    $$ = "!=";
+    }
+  | LT {
+    // printf("comparison -> LT\n"); 
+    $$ = "<";
+    }
+  | GT {
+    // printf("comparison -> GT\n"); 
+    $$ = ">";
+    }
+  | LTE {
+    // printf("comparison -> LTE\n"); 
+    $$ = "<=";
+    }
+  | GTE {
+    // printf("comparison -> GTE\n");
+    $$ = ">=";
+    }; 
   
 E: ME { $$ = $1; }
   | ME AOP ME {
@@ -318,9 +497,18 @@ ME: T { std::string output = $1; /* printf("%s\n", output.c_str()); */ }
     char* tempC = strdup(temp.c_str());
     $$ = tempC;
     };
-MOP: MULT { /* printf("mult_op -> MULT\n"); */ $$ = "*"; }
-  |  DIV { /* printf("mult_op -> DIV\n"); */ $$ = "/"; }
-  |  MOD { /* printf("mult_op -> MOD\n"); */ $$ = "%"; };
+MOP: MULT { 
+    /* printf("mult_op -> MULT\n"); */ 
+    $$ = "*"; 
+    }
+  |  DIV { 
+    /* printf("mult_op -> DIV\n"); */ 
+    $$ = "/"; 
+    }
+  |  MOD { 
+    /* printf("mult_op -> MOD\n"); */ 
+    $$ = "%"; 
+    };
 T: V { /* printf("term -> var\n"); */ $$ = $1; }
   | number {
     /*printf("term -> number %d\n", yylval);*/ 
