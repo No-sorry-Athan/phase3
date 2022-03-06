@@ -122,6 +122,8 @@ void yyerror(const char *msg);
 %type <sval> BE
 %type <sval> ECL
 %type <sval> MOP
+%type <sval> eBE
+%type <sval> ifCont
 %type <sval> ifBE
 %type <sval> ME
 %type <sval> AOP
@@ -182,16 +184,10 @@ DECLOCALS : identifier COLON INTEGER SEMICOLON {
   } DECLOCALS | ;
 
 S1: S1 S2 SEMICOLON { /* printf("statements1 -> statements1 statement2 SEMICOLON\n"); */ $$ = $2;}
-| /*{printf("statements1 -> epsilon\n");}*/;
+| {/*{printf("statements1 -> epsilon\n");}*/};
 S2:
-  IF {ifCount++;} ifBE THEN {
-  int currentLoop = ifCount - 1;
-  std::string outputString = ": if_true" + std::to_string(currentLoop);
-  printf("%s\n", outputString.c_str());
-  std::string outputN = outputString + "\n";
-  fprintf(yyout, outputN.c_str());
-  }
-    S1 { if ($6 != "break"){
+  IF eBE THEN S1 { 
+  if ($4 != "break") {
       int currentLoop = ifCount - 1;
       std::string outputString = ":= endif" + std::to_string(currentLoop);
       printf("%s\n", outputString.c_str());
@@ -264,12 +260,26 @@ S2:
     // printf("statement2 -> WHILE bool_exp BLOOP statements ENLOOP\n");
     }
   | DO { std::string beginloop = ": beginloop" + std::to_string(loopCount++);
-    printf("%s\n", beginloop.c_str()); } BLOOP S1 ENLOOP WHILE BE {
+    printf("%s\n", beginloop.c_str()); } BLOOP S1 ENLOOP {int currentLoop = loopCount - 1; 
+      loopCount --;
+      std::string outputString1 = ":= beginloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString1.c_str());
+      std::string output1N = outputString1 + "\n";
+      fprintf(yyout, output1N.c_str());
+      std::string outputString2 = ": endloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString2.c_str());
+      std::string output2N = outputString2 + "\n";
+      fprintf(yyout, output2N.c_str());  } WHILE BE {
     
-    printf("statement2 -> DO BLOOP statements ENLOOP WHILE bool_exp\n"); 
+    //printf("statement2 -> DO BLOOP statements ENLOOP WHILE bool_exp\n"); 
     }
   | READ V {
-    printf("statement2 -> READ var\n");
+    std::string temp = $2;
+    std::string outputString = ".< " + temp;
+    printf("%s\n", outputString.c_str());
+    std::string outputStringN = outputString + "\n";
+    fprintf(yyout, outputStringN.c_str());
+    // printf("statement2 -> READ var\n");
     }
   | WRITE identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET
   { 
@@ -305,6 +315,7 @@ S2:
     }
   | CONTINUE {
     // printf("statement2 -> CONTINUE\n");
+
     }
   | BREAK {
     int currentLoop = loopCount - 1;
@@ -333,10 +344,15 @@ ES: ELSE {int currentLoop = ifCount - 1;
     fprintf(yyout, outputN.c_str()); } 
     S1 {
     
-    // printf("else -> ELSE statements\n"); 
-  }| {
-    // printf("else -> epsilon\n"); 
-  };
+      // printf("else -> ELSE statements\n"); 
+    }
+    | {
+      int currentLoop = ifCount - 1; 
+      std::string outputString = ": else" + std::to_string(currentLoop);
+      printf("%s\n", outputString.c_str());
+      std::string outputStringN = outputString + '\n';
+      fprintf(yyout, outputStringN.c_str());
+    };
 BE: N E C E {
   std::string ntString = $1;
   std::string e1 = $2;
@@ -375,7 +391,10 @@ BE: N E C E {
   $$ = "";
 }; 
 
-ifBE: N E C E {
+
+
+eBE: N E C E {
+  ifCount++;
   std::string ntString = $1;
   std::string e1 = $2;
   std::string c = $3;
@@ -402,6 +421,11 @@ ifBE: N E C E {
   printf("%s\n", endLoopS.c_str());
   std::string endLoopN = endLoopS + "\n";
   fprintf(yyout, endLoopN.c_str());
+
+    std::string outputString = ": if_true" + std::to_string(currentLoop);
+  printf("%s\n", outputString.c_str());
+  std::string outputN = outputString + "\n";
+  fprintf(yyout, outputN.c_str());
 
   /* std::string tempSymbol = ". " + temp;
   addStatement(tempSymbol); */
@@ -567,7 +591,26 @@ COMMA ECL {
 
     $$ = strdup(temp.c_str()); 
     }
-  | E { /* printf("expression_comma_loop -> expression\n"); */ $$ = $1; }
+  | E { 
+    std::string e = $1;
+    printf("param %s\n", e.c_str());
+    std::string paramSymbol = "param " + e;
+    addStatement(paramSymbol);
+    std::string outputS = paramSymbol + "\n";
+    fprintf(yyout, outputS.c_str());
+
+
+    std::string temp = "_temp" + std::to_string(tmpCount++);
+    printf(". %s\n", temp.c_str());
+    std::string tempSymbol = ". " + temp;
+    addStatement(tempSymbol);
+    std::string tempSymbolN = tempSymbol + "\n";
+    fprintf(yyout, tempSymbolN.c_str());
+
+    char* tempChar = strdup(temp.c_str());
+    /* printf("expression_comma_loop -> expression\n"); */ 
+    $$ = tempChar; 
+    }
   | { /* printf("expression_comma_loop -> epsilon\n"); */ $$ = ""; }; 
 V: identifier { $$ = $1; }
   | identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET { 
