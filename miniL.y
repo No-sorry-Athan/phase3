@@ -29,6 +29,66 @@ struct Function {
 };
 std::vector<Function> symbol_table;
 
+struct VarPair{
+  std::string name;
+  std::string type;
+};
+
+std::vector<VarPair> variables;
+std::vector<std::string> errorList;
+
+bool variableExists(std::string &v1, std::string &v2){
+  for (int i = 0; i < variables.size(); i++){
+    if (variables.at(i).name == v1) { // variable already exists, but attempt re-declaration (error 4)
+      return true;
+    }
+  }
+  return false;
+}
+
+bool correctType(std::string &v1, std::string &v2){
+  for (int i = 0; i < variables.size(); i++){
+    if (variables.at(i).name == v1) { // variable already exists, but attempt re-declaration (error 4)
+      if (variables.at(i).type == v2){
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool addVariable(std::string &v1, std::string &v2){
+  if (variableExists(v1, v2)) {return false;}
+  VarPair v;
+  v.name = v1;
+  v.type = v2;
+
+  variables.push_back(v);
+  return true;
+}
+
+bool checkFunctionExists(std::string &v1){
+  for (int i = 0; i < symbol_table.size(); i++){
+      if (symbol_table.at(i).name == v1)
+        return true;
+  }
+  return false;
+}
+
+std::string checkVariableType(std::string &v1){
+  for (int i = 0; i < variables.size(); i++){
+      if (variables.at(i).name == v1)
+        return variables.at(i).type;
+  }
+  return "null";
+}
+
+void printErrors(){
+  for (int i = 0; i < errorList.size(); i++){
+    printf("%s\n", errorList.at(i).c_str());
+  }
+}
+
 void addFunction(std::string &value) {
   Function f;
   f.name = value;
@@ -114,6 +174,8 @@ void yyerror(const char *msg);
 %type <ival> number
 %type <sval> S1
 %type <sval> S2
+%type <sval> S3
+%type <sval> S4
 %type <sval> E
 %type <sval> C
 %type <sval> V
@@ -123,8 +185,6 @@ void yyerror(const char *msg);
 %type <sval> ECL
 %type <sval> MOP
 %type <sval> eBE
-%type <sval> ifCont
-%type <sval> ifBE
 %type <sval> ME
 %type <sval> AOP
 
@@ -144,7 +204,10 @@ F: FUNCTION identifier SEMICOLON {
   //printf("function -> FUNCTION IDENT SEMICOLON BEGIN_PARAMS declarations END_PARAMS BEGIN_LOCALS declarations END_LOCALS BEGIN_BODY statements END_BODY\n");
   } BPARAMS DECPARAM PRINTPARAMS EPARAMS BLOCALS DECLOCALS ELOCALS BBODY S1 EBODY {printf("endfunc\n\n"); fprintf(yyout, "endfunc\n\n"); };
 
-DECPARAM : identifier COLON INTEGER SEMICOLON { 
+DECPARAM : identifier COLON INTEGER {  std::string ident = $1; std::string integer = "INTEGER"; if (!addVariable(ident, integer)){ //error case 4
+      std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": symbol " + ident + " is multiply-defined";
+      errorList.push_back(errorMessage);
+    }} SEMICOLON { 
     std::string ident = $1; 
     params = params + ". " + ident.c_str() + "\n";
     std::string dcp1 = ". " + ident;
@@ -152,8 +215,19 @@ DECPARAM : identifier COLON INTEGER SEMICOLON {
     std::string dcp2 = "= " + ident + ", $" + std::to_string(count);
     addDecParam2(dcp2);
     paramtails = paramtails + "= " + ident.c_str() + ", $" + std::to_string(count++) + "\n";
+    
+    
     } DECPARAM 
-  | identifier COLON ARRAY L_SQUARE_BRACKET number R_SQUARE_BRACKET OF INTEGER SEMICOLON { 
+  | identifier COLON ARRAY L_SQUARE_BRACKET number { std::string ident = $1;
+      int num = $5; std::string arr = "ARRAY";
+      if (!addVariable(ident, arr)){ //error case 4
+      std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": symbol " + ident + " is multiply-defined";
+      errorList.push_back(errorMessage);
+      }
+      if (num <= 0){
+        std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": array \"" + ident + "\" declared with size <= 0";
+        errorList.push_back(errorMessage);
+      }} R_SQUARE_BRACKET OF INTEGER SEMICOLON { 
       std::string ident = $1;
       int num = $5;
       std::string dcp1 = ".[] " + ident + ", " + std::to_string(num);
@@ -162,10 +236,15 @@ DECPARAM : identifier COLON INTEGER SEMICOLON {
       std::string dcp2 = "= " + ident + ", $" + std::to_string(count);
       addDecParam2(dcp2);
       paramtails = paramtails + "= " + ident + ", $" + std::to_string(count++) + "\n";
+      
   } DECPARAM | ;
 PRINTPARAMS : { printf("%s%s", params.c_str(), paramtails.c_str()); fprintf(yyout, params.c_str()); fprintf(yyout, paramtails.c_str()); params = ""; paramtails = ""; count = 0;}
 
-DECLOCALS : identifier COLON INTEGER SEMICOLON { 
+DECLOCALS : identifier COLON INTEGER {     std::string ident = $1;  std::string integer = "INTEGER";
+    if (!addVariable(ident, integer)){ //error case 4
+      std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": symbol " + ident + " is multiply-defined";
+      errorList.push_back(errorMessage);
+    }} SEMICOLON { 
     std::string ident = $1; 
     std::string declocal = ". " + ident;
     std::string output = ". " + ident + "\n";
@@ -173,24 +252,36 @@ DECLOCALS : identifier COLON INTEGER SEMICOLON {
     fprintf(yyout, output.c_str());
     addDecLocal(declocal);
     } DECLOCALS 
-  | identifier COLON ARRAY L_SQUARE_BRACKET number R_SQUARE_BRACKET OF INTEGER SEMICOLON { 
+  | identifier COLON ARRAY L_SQUARE_BRACKET number { std::string ident = $1;
+      int num = $5; std::string arr = "ARRAY"; if (!addVariable(ident, arr)){  //error case 4
+        std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": symbol " + ident + " is multiply-defined";
+        errorList.push_back(errorMessage);
+      }
+      if (num <= 0){
+        std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": array \"" + ident + "\" declared with size <= 0";
+        errorList.push_back(errorMessage);
+      } } R_SQUARE_BRACKET OF INTEGER SEMICOLON { 
       std::string ident = $1;
       int num = $5;
       std::string output_string = ".[] " + ident + ", " + std::to_string(num);
       printf("%s\n", output_string.c_str());
       std::string outputN = output_string + "\n";
       fprintf(yyout, outputN.c_str());
+      
+
+      
       addDecLocal(output_string);
   } DECLOCALS | ;
 
 S1: S1 S2 SEMICOLON { /* printf("statements1 -> statements1 statement2 SEMICOLON\n"); */ $$ = $2;}
 | {/*{printf("statements1 -> epsilon\n");}*/};
 S2:
-  IF eBE THEN S1 { 
+  IF eBE THEN S3 { 
   if ($4 != "break") {
       int currentLoop = ifCount - 1;
       std::string outputString = ":= endif" + std::to_string(currentLoop);
       printf("%s\n", outputString.c_str());
+      addStatement(outputString);
       std::string outputN = outputString + "\n";
       fprintf(yyout, outputN.c_str());
       } 
@@ -199,6 +290,7 @@ S2:
     int currentLoop = ifCount - 1;
     std::string outputString = ": endif" + std::to_string(currentLoop);
     printf("%s\n", outputString.c_str());
+    addStatement(outputString);
     std::string outputN = outputString + "\n";
     fprintf(yyout, outputN.c_str());
  
@@ -225,6 +317,22 @@ S2:
         fprintf(yyout, outputN.c_str());
         addStatement(outputString);
       }
+      std::string arr = "ARRAY";
+      if (variableExists(ident, arr)){
+        if (!correctType(ident, arr)){
+          std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used integer variable \"" + ident + "\" has array indexing";
+          errorList.push_back(errorMessage);
+        }
+      }
+      else{
+        std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + ident + "\" was not previously defined";
+        errorList.push_back(errorMessage);
+      }
+    //         std::string emp = "";
+    // if (!variableExists(e, emp)){
+    // std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + e + "\" was not previously defined";
+    // errorList.push_back(errorMessage);
+    // }
     } 
   | V ASSIGN E { /* printf("statement2 -> var ASSIGN expression\n"); */ 
   std::string v = $1;
@@ -233,10 +341,28 @@ S2:
   std::string outputN = outputString + "\n";
   printf("= %s, %s\n", $1, $3); 
   fprintf(yyout, outputN.c_str());
-  addStatement(outputString);}
+  addStatement(outputString);
+  std::string integer = "INTEGER";
+  if (variableExists(v, integer)){
+    if (!correctType(v, integer)){
+      std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used array variable \"" + v + "\" has no indexing";
+      errorList.push_back(errorMessage);
+    }
+  }
+  else{
+    std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + v + "\" was not previously defined";
+    errorList.push_back(errorMessage);
+  }
+  // std::string emp = "";
+  //   if (!variableExists(e, emp)){
+  // std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + e + "\" was not previously defined";
+  // errorList.push_back(errorMessage);
+  // }
+  }
   | WHILE { 
       std::string outputString = ": beginloop" + std::to_string(loopCount++);
       printf("%s\n", outputString.c_str());  
+      addStatement(outputString);
       std::string outputN = outputString + "\n";
       fprintf(yyout, outputN.c_str());
      } BE BLOOP 
@@ -244,30 +370,37 @@ S2:
      
         std::string outputString = ": loopbody" + std::to_string(currentLoop);
         printf("%s\n", outputString.c_str());  
+        addStatement(outputString);
         std::string outputN = outputString + "\n";
         fprintf(yyout, outputN.c_str());
-      } S1 ENLOOP {
+      } S3 ENLOOP {
       int currentLoop = loopCount - 1; 
       loopCount --;
       std::string outputString1 = ":= beginloop" + std::to_string(currentLoop);
       printf("%s\n", outputString1.c_str());
+      addStatement(outputString1);
       std::string output1N = outputString1 + "\n";
       fprintf(yyout, output1N.c_str());
       std::string outputString2 = ": endloop" + std::to_string(currentLoop);
       printf("%s\n", outputString2.c_str());
+      addStatement(outputString2);
       std::string output2N = outputString2 + "\n";
       fprintf(yyout, output2N.c_str());
     // printf("statement2 -> WHILE bool_exp BLOOP statements ENLOOP\n");
     }
   | DO { std::string beginloop = ": beginloop" + std::to_string(loopCount++);
-    printf("%s\n", beginloop.c_str()); } BLOOP S1 ENLOOP {int currentLoop = loopCount - 1; 
+    printf("%s\n", beginloop.c_str()); 
+    addStatement(beginloop); } 
+    BLOOP S3 ENLOOP {int currentLoop = loopCount - 1; 
       loopCount --;
       std::string outputString1 = ":= beginloop" + std::to_string(currentLoop);
       printf("%s\n", outputString1.c_str());
+      addStatement(outputString1);
       std::string output1N = outputString1 + "\n";
       fprintf(yyout, output1N.c_str());
       std::string outputString2 = ": endloop" + std::to_string(currentLoop);
       printf("%s\n", outputString2.c_str());
+      addStatement(outputString2);
       std::string output2N = outputString2 + "\n";
       fprintf(yyout, output2N.c_str());  } WHILE BE {
     
@@ -303,6 +436,11 @@ S2:
     fprintf(yyout, tempW.c_str());
     std::string writeTemp = ".> " + temp;
     addStatement(writeTemp);
+    // std::string emp = "";
+    // if (!variableExists(e, emp)){
+    // std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + e + "\" was not previously defined";
+    // errorList.push_back(errorMessage);
+    // }
   }
   | WRITE V {
     // printf("statement2 -> WRITE var\n");
@@ -313,13 +451,273 @@ S2:
     fprintf(yyout, varN.c_str());
     addStatement(writeVar);
     }
+  |  RETURN E {
+    printf("ret %s\n", $2);
+    std::string var = $2;
+    std::string retSymbol = "ret " + var;
+    addStatement(retSymbol);
+
+    std::string retN = retSymbol + "\n";
+    fprintf(yyout, retN.c_str());
+    // printf("statement2 -> RETURN expression\n");
+    };
+
+ES: ELSE {int currentLoop = ifCount - 1;
+    std::string outputString = ": else" + std::to_string(currentLoop);
+    printf("%s\n", outputString.c_str());
+    addStatement(outputString);
+    std::string outputN = outputString + "\n";
+    fprintf(yyout, outputN.c_str()); } 
+    S3 
+    | {
+      int currentLoop = ifCount - 1; 
+      std::string outputString = ": else" + std::to_string(currentLoop);
+      printf("%s\n", outputString.c_str());
+      addStatement(outputString);
+      std::string outputStringN = outputString + '\n';
+      fprintf(yyout, outputStringN.c_str());
+    };
+BE: N E C E {
+  std::string ntString = $1;
+  std::string e1 = $2;
+  std::string c = $3;
+  std::string e2 = $4;
+  int currentLoop = loopCount - 1;
+
+  std::string temp = "_temp" + std::to_string(tmpCount++);
+  std::string tempDot = ". " + temp;
+  printf(". %s\n", temp.c_str());
+  addStatement(tempDot);
+  std::string tempN = ". " + temp + "\n";
+  fprintf(yyout, tempN.c_str());
+
+  std::string compOp = c + " " + temp + ", " + e1 + ", " + e2;
+  printf("%s\n", compOp.c_str());
+  addStatement(compOp);
+  std::string compOpN = compOp + "\n";
+  fprintf(yyout, compOpN.c_str());
+
+  std::string loopAssn = "?:= loopbody" + std::to_string(currentLoop) + ", " + temp;
+  printf("%s\n", loopAssn.c_str());
+  addStatement(loopAssn);
+  std::string loopAssnN = loopAssn + "\n";
+  fprintf(yyout, loopAssnN.c_str());
+
+  std::string endLoopS = ":= endloop" + std::to_string(currentLoop);
+  printf("%s\n", endLoopS.c_str());
+  addStatement(endLoopS);
+  std::string endLoopN = endLoopS + "\n";
+  fprintf(yyout, endLoopN.c_str());
+
+  /* std::string tempSymbol = ". " + temp;
+  addStatement(tempSymbol); */
+
+ // printf("bool_exp -> not expression comparison expression\n");
+} 
+| {
+  // printf("bool_exp -> epsilon\n");
+  $$ = "";
+}; 
+
+S3: S3 S4 SEMICOLON { /* printf("statements1 -> statements1 statement2 SEMICOLON\n"); */ $$ = $2;}
+| {/*{printf("statements1 -> epsilon\n");}*/};
+S4:
+  IF eBE THEN S3 { 
+  if ($4 != "break") {
+      int currentLoop = ifCount - 1;
+      std::string outputString = ":= endif" + std::to_string(currentLoop);
+      printf("%s\n", outputString.c_str());
+      addStatement(outputString);
+      std::string outputN = outputString + "\n";
+      fprintf(yyout, outputN.c_str());
+      } 
+    }
+    ES ENDIF { 
+    int currentLoop = ifCount - 1;
+    std::string outputString = ": endif" + std::to_string(currentLoop);
+    printf("%s\n", outputString.c_str());
+    addStatement(outputString);
+    std::string outputN = outputString + "\n";
+    fprintf(yyout, outputN.c_str());
+ 
+    // printf("statement2 -> IF bool_exp THEN statements else ENDIF\n"); 
+    }
+  | identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET ASSIGN E { 
+      std::string ident = $1;
+      std::string e = $3;
+      std::string rhs = $6;
+      int equiv = std::atoi(rhs.c_str());
+      if (equiv != 0){
+        std::string outputString = "[]= " + ident + ", " + e + ", " + rhs; 
+        std::string output = outputString + "\n";
+        printf("%s\n", outputString.c_str());
+        fprintf(yyout, output.c_str());
+        addStatement(outputString);
+      }
+      else{
+        int copyOfCount = tmpCount - 1;
+        std::string temp = "_temp" + std::to_string(copyOfCount);
+        std::string outputString = "[]= " + ident + ", " + e + ", " + temp; 
+        std::string outputN = outputString + "\n";
+        printf("%s\n", outputString.c_str());
+        fprintf(yyout, outputN.c_str());
+        addStatement(outputString);
+      }
+
+      std::string arr = "ARRAY";
+      if (variableExists(ident, arr)){
+        if (!correctType(ident, arr)){
+          std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used integer variable \"" + ident + "\" has array indexing";
+          errorList.push_back(errorMessage);
+        }
+      }
+      else{
+        std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + ident + "\" was not previously defined";
+        errorList.push_back(errorMessage);
+      }
+
+    //   std::string emp = "";
+    // if (!variableExists(e, emp)){
+    //    std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + e + "\" was not previously defined";
+    //   errorList.push_back(errorMessage);
+    //   }
+    } 
+  | V ASSIGN E { /* printf("statement2 -> var ASSIGN expression\n"); */ 
+  std::string v = $1;
+  std::string e = $3;
+  std::string outputString = "= " + v + ", " + e;
+  std::string outputN = outputString + "\n";
+  printf("= %s, %s\n", $1, $3); 
+  fprintf(yyout, outputN.c_str());
+  addStatement(outputString);
+  std::string integer = "INTEGER";
+  if (variableExists(v, integer)){
+    if (!correctType(v, integer)){
+      std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used array variable \"" + v + "\" has no indexing";
+      errorList.push_back(errorMessage);
+    }
+  }
+  else{
+    std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + v + "\" was not previously defined";
+    errorList.push_back(errorMessage);
+  }
+  }
+  | WHILE { 
+      std::string outputString = ": beginloop" + std::to_string(loopCount++);
+      printf("%s\n", outputString.c_str());  
+      addStatement(outputString);
+      std::string outputN = outputString + "\n";
+      fprintf(yyout, outputN.c_str());
+     } BE BLOOP 
+     {  int currentLoop = loopCount - 1; 
+     
+        std::string outputString = ": loopbody" + std::to_string(currentLoop);
+        printf("%s\n", outputString.c_str());  
+        addStatement(outputString);
+        std::string outputN = outputString + "\n";
+        fprintf(yyout, outputN.c_str());
+      } S3 ENLOOP {
+      int currentLoop = loopCount - 1; 
+      loopCount --;
+      std::string outputString1 = ":= beginloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString1.c_str());
+      addStatement(outputString1);
+      std::string output1N = outputString1 + "\n";
+      fprintf(yyout, output1N.c_str());
+      std::string outputString2 = ": endloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString2.c_str());
+      addStatement(outputString2);
+      std::string output2N = outputString2 + "\n";
+      fprintf(yyout, output2N.c_str());
+    // printf("statement2 -> WHILE bool_exp BLOOP statements ENLOOP\n");
+    }
+  | DO { std::string beginloop = ": beginloop" + std::to_string(loopCount++);
+    printf("%s\n", beginloop.c_str()); addStatement(beginloop); } BLOOP S3 ENLOOP {int currentLoop = loopCount - 1; 
+      loopCount --;
+      std::string outputString1 = ":= beginloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString1.c_str());
+      addStatement(outputString1);
+      std::string output1N = outputString1 + "\n";
+      fprintf(yyout, output1N.c_str());
+      std::string outputString2 = ": endloop" + std::to_string(currentLoop);
+      printf("%s\n", outputString2.c_str());
+      addStatement(outputString2);
+      std::string output2N = outputString2 + "\n";
+      fprintf(yyout, output2N.c_str());  } WHILE BE {
+    
+    //printf("statement2 -> DO BLOOP statements ENLOOP WHILE bool_exp\n"); 
+    }
+  | READ V {
+    std::string temp = $2;
+    std::string outputString = ".< " + temp;
+    printf("%s\n", outputString.c_str());
+    std::string outputStringN = outputString + "\n";
+    fprintf(yyout, outputStringN.c_str());
+    // printf("statement2 -> READ var\n");
+    }
+  | WRITE identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET
+  { 
+    std::string temp = "_temp" + std::to_string(tmpCount++);
+    std::string tempSymbol = ". " + temp;
+    std::string tempN = tempSymbol + "\n";
+    printf(". %s\n", temp.c_str());
+    fprintf(yyout, tempN.c_str());
+    addStatement(tempSymbol);
+    std::string ident = $2;
+    std::string e = $4;
+    std::string output = "=[] " + temp + ", " + ident + ", " + e;
+    std::string outputSymbol = output;
+    std::string outputN = output + "\n";
+    printf("%s\n", output.c_str());
+    fprintf(yyout, outputN.c_str());
+    addStatement(outputSymbol);
+
+    std::string tempW = ".> " + temp + "\n";
+    printf(".> %s\n", temp.c_str());
+    fprintf(yyout, tempW.c_str());
+    std::string writeTemp = ".> " + temp;
+    addStatement(writeTemp);
+
+    std::string arr = "ARRAY";
+      if (variableExists(ident, arr)){
+        if (!correctType(ident, arr)){
+          std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used integer variable \"" + ident + "\" has array indexing";
+          errorList.push_back(errorMessage);
+        }
+      }
+      else{
+        std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + ident + "\" was not previously defined";
+        errorList.push_back(errorMessage);
+      }
+  }
+  | WRITE V {
+    // printf("statement2 -> WRITE var\n");
+    std::string var = $2;
+    std::string writeVar = ".> " + var;
+    std::string varN = writeVar + "\n";
+    printf(".> %s\n", var.c_str());
+    fprintf(yyout, varN.c_str());
+    addStatement(writeVar);
+    std::string integer = "INTEGER";
+    if (!variableExists(var, integer)){
+      std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + var + "\" was not previously defined";
+      errorList.push_back(errorMessage);
+    }
+    }
   | CONTINUE {
     // printf("statement2 -> CONTINUE\n");
-
+    int currentLoop = loopCount - 1;
+    std::string outputString = ":= endloop" + std::to_string(currentLoop);
+    printf("%s\n", outputString.c_str());
+    addStatement(outputString);
+    std::string outputStringN = outputString + '\n';
+    fprintf(yyout, outputStringN.c_str());
+    $$ = "continue";
     }
   | BREAK {
     int currentLoop = loopCount - 1;
     std::string outputString = ":= endloop" + std::to_string(currentLoop);
+    addStatement(outputString);
     printf("%s\n", outputString.c_str());
     std::string outputStringN = outputString + '\n';
     fprintf(yyout, outputStringN.c_str());
@@ -337,62 +735,6 @@ S2:
     // printf("statement2 -> RETURN expression\n");
     };
 
-ES: ELSE {int currentLoop = ifCount - 1;
-    std::string outputString = ": else" + std::to_string(currentLoop);
-    printf("%s\n", outputString.c_str());
-    std::string outputN = outputString + "\n";
-    fprintf(yyout, outputN.c_str()); } 
-    S1 {
-    
-      // printf("else -> ELSE statements\n"); 
-    }
-    | {
-      int currentLoop = ifCount - 1; 
-      std::string outputString = ": else" + std::to_string(currentLoop);
-      printf("%s\n", outputString.c_str());
-      std::string outputStringN = outputString + '\n';
-      fprintf(yyout, outputStringN.c_str());
-    };
-BE: N E C E {
-  std::string ntString = $1;
-  std::string e1 = $2;
-  std::string c = $3;
-  std::string e2 = $4;
-  int currentLoop = loopCount - 1;
-
-
-  std::string temp = "_temp" + std::to_string(tmpCount++);
-  printf(". %s\n", temp.c_str());
-  std::string tempN = ". " + temp + "\n";
-  fprintf(yyout, tempN.c_str());
-
-  std::string compOp = c + " " + temp + ", " + e1 + ", " + e2;
-  printf("%s\n", compOp.c_str());
-  std::string compOpN = compOp + "\n";
-  fprintf(yyout, compOpN.c_str());
-
-  std::string loopAssn = "?:= loopbody" + std::to_string(currentLoop) + ", " + temp;
-  printf("%s\n", loopAssn.c_str());
-  std::string loopAssnN = loopAssn + "\n";
-  fprintf(yyout, loopAssnN.c_str());
-
-  std::string endLoopS = ":= endloop" + std::to_string(currentLoop);
-  printf("%s\n", endLoopS.c_str());
-  std::string endLoopN = endLoopS + "\n";
-  fprintf(yyout, endLoopN.c_str());
-
-  /* std::string tempSymbol = ". " + temp;
-  addStatement(tempSymbol); */
-
- // printf("bool_exp -> not expression comparison expression\n");
-} 
-| {
-  // printf("bool_exp -> epsilon\n");
-  $$ = "";
-}; 
-
-
-
 eBE: N E C E {
   ifCount++;
   std::string ntString = $1;
@@ -404,26 +746,32 @@ eBE: N E C E {
 
   std::string temp = "_temp" + std::to_string(tmpCount++);
   printf(". %s\n", temp.c_str());
+  std::string tempDot = ". " + temp;
+  addStatement(tempDot);
   std::string tempN = ". " + temp + "\n";
   fprintf(yyout, tempN.c_str());
 
   std::string compOp = c + " " + temp + ", " + e1 + ", " + e2;
   printf("%s\n", compOp.c_str());
+  addStatement(compOp);
   std::string compOpN = compOp + "\n";
   fprintf(yyout, compOpN.c_str());
 
   std::string loopAssn = "?:= if_true" + std::to_string(currentLoop) + ", " + temp;
   printf("%s\n", loopAssn.c_str());
+  addStatement(loopAssn);
   std::string loopAssnN = loopAssn + "\n";
   fprintf(yyout, loopAssnN.c_str());
 
   std::string endLoopS = ":= else" + std::to_string(currentLoop);
   printf("%s\n", endLoopS.c_str());
+  addStatement(endLoopS);
   std::string endLoopN = endLoopS + "\n";
   fprintf(yyout, endLoopN.c_str());
 
-    std::string outputString = ": if_true" + std::to_string(currentLoop);
+  std::string outputString = ": if_true" + std::to_string(currentLoop);
   printf("%s\n", outputString.c_str());
+  addStatement(outputString);
   std::string outputN = outputString + "\n";
   fprintf(yyout, outputN.c_str());
 
@@ -438,7 +786,7 @@ eBE: N E C E {
 }; 
 
 N: NOT N {
-  printf("not -> NOT not\n");
+  // printf("not -> NOT not\n");
   std::string current = $$;
   std::string notString = current + " not";
   char* notC = strdup(notString.c_str());
@@ -446,7 +794,7 @@ N: NOT N {
   } | {
     // printf("not -> epsilon\n");
     $$ = "";
-    } ;
+  } ;
 C: EQ { 
     // printf("comparison -> EQ\n"); 
     $$ = "=";
@@ -533,7 +881,9 @@ MOP: MULT {
     /* printf("mult_op -> MOD\n"); */ 
     $$ = "%"; 
     };
-T: V { /* printf("term -> var\n"); */ $$ = $1; }
+T: V { /* printf("term -> var\n"); */
+     $$ = $1; 
+      }
   | number {
     /*printf("term -> number %d\n", yylval);*/ 
     int num = $1; 
@@ -554,6 +904,10 @@ T: V { /* printf("term -> var\n"); */ $$ = $1; }
     printf("call %s, %s\n", ident.c_str(), ecl.c_str());
     std::string callSymbol = "call " + ident + ", " + ecl;
     addStatement(callSymbol);
+    if (!checkFunctionExists(ident)){
+     std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": function \"" + ident + "\" used but not declared";
+      errorList.push_back(errorMessage);
+   }
 
     std::string callN = callSymbol + "\n";
     fprintf(yyout, callN.c_str());
@@ -612,7 +966,22 @@ COMMA ECL {
     $$ = tempChar; 
     }
   | { /* printf("expression_comma_loop -> epsilon\n"); */ $$ = ""; }; 
-V: identifier { $$ = $1; }
+V: identifier { 
+  $$ = $1; 
+  std::string emp = "";
+    std::string v = $1;
+    if (!variableExists(v, emp)){
+          std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + v + "\" was not previously defined";
+        errorList.push_back(errorMessage);
+      }
+      else{
+        std::string varType = checkVariableType(v);
+          if (varType != "INTEGER"){
+            std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used array variable \"" + v + "\" has no indexing";
+              errorList.push_back(errorMessage);
+          }
+      }
+      }
   | identifier L_SQUARE_BRACKET E R_SQUARE_BRACKET { 
     //Node* node = new Node();
     std::string ident = $1;
@@ -637,6 +1006,19 @@ V: identifier { $$ = $1; }
 
     char* tempC = strdup(temp.c_str());
     $$ = tempC;
+
+    std::string emp = "";
+    if (!variableExists(ident, emp)){
+        std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used variable \"" + ident + "\" was not previously defined";
+      errorList.push_back(errorMessage);
+    }
+    else{
+      std::string varType = checkVariableType(ident);
+      if (varType != "ARRAY"){
+          std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": used integer variable \"" + ident + "\" has array indexing";
+          errorList.push_back(errorMessage);
+      }
+    }
     }
 identifier: IDENTIFIER { $$ = $1; }
 number: NUMBER { $$ = $1; }
@@ -647,12 +1029,19 @@ int main(int argc, char **argv) {
    if (argc > 1){
       yyin = fopen(argv[1], "r");
    }
+    
 
    yyout = fopen("output.mil", "w");
 
    yyparse();
+   std::string main = "main";
+   if (!checkFunctionExists(main)){
+     std::string errorMessage = "Function main does not exist";
+      errorList.push_back(errorMessage);
+   }
    fclose(yyout);
    printSymbolTable();
+   printErrors();
    //printf("%s", argv[0]);
 
    return 0;
