@@ -202,7 +202,7 @@ F: FUNCTION identifier SEMICOLON {
   printf("func %s\n", ident.c_str());
   addFunction(ident);
   //printf("function -> FUNCTION IDENT SEMICOLON BEGIN_PARAMS declarations END_PARAMS BEGIN_LOCALS declarations END_LOCALS BEGIN_BODY statements END_BODY\n");
-  } BPARAMS DECPARAM PRINTPARAMS EPARAMS BLOCALS DECLOCALS ELOCALS BBODY S1 EBODY {printf("endfunc\n\n"); fprintf(yyout, "endfunc\n\n"); };
+  } BPARAMS DECPARAM PRINTPARAMS EPARAMS BLOCALS DECLOCALS ELOCALS BBODY S1 EBODY {printf("endfunc\n\n"); fprintf(yyout, "endfunc\n\n"); variables = std::vector<VarPair>();};
 
 DECPARAM : identifier COLON INTEGER {  std::string ident = $1; std::string integer = "INTEGER"; if (!addVariable(ident, integer)){ //error case 4
       std::string errorMessage = "Error line " + std::to_string(yyloc.last_line) + ": symbol " + ident + " is multiply-defined";
@@ -821,7 +821,7 @@ C: EQ {
     }; 
   
 E: ME { $$ = $1; }
-  | ME AOP ME {
+  | ME AOP E {
      // printf("expression -> mult_exp add_term\n"); 
     std::string temp = "_temp" + std::to_string(tmpCount++);
     std::string me1 = $1;
@@ -928,12 +928,12 @@ COMMA ECL {
     std::string output = e + "," + ecl;
     char* outputc = strdup(output.c_str());
     
-    printf("param %s\n", $4);
-    std::string paramSymbol = "param " + ecl;
-    addStatement(paramSymbol);
+    // printf("param %s\n", $4);
+    // std::string paramSymbol = "param " + ecl;
+    //addStatement(paramSymbol);
 
-    std::string paramN = paramSymbol + "\n";
-    fprintf(yyout, paramN.c_str());
+    //std::string paramN = paramSymbol + "\n";
+    //fprintf(yyout, paramN.c_str());
 
     std::string temp = "_temp" + std::to_string(tmpCount++);
     printf(". %s\n", temp.c_str());
@@ -953,13 +953,12 @@ COMMA ECL {
     std::string outputS = paramSymbol + "\n";
     fprintf(yyout, outputS.c_str());
 
-
-    std::string temp = "_temp" + std::to_string(tmpCount++);
-    printf(". %s\n", temp.c_str());
+    std::string temp = "_temp" + std::to_string(tmpCount);
+    // printf(". %s\n", temp.c_str());
     std::string tempSymbol = ". " + temp;
-    addStatement(tempSymbol);
+    //addStatement(tempSymbol);
     std::string tempSymbolN = tempSymbol + "\n";
-    fprintf(yyout, tempSymbolN.c_str());
+    //fprintf(yyout, tempSymbolN.c_str());
 
     char* tempChar = strdup(temp.c_str());
     /* printf("expression_comma_loop -> expression\n"); */ 
